@@ -4,8 +4,6 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use App\Notifications\PostBaruNotification;
-use Illuminate\Support\Facades\Notification;
 use App\Models\Post;
 use App\Models\Term;
 use App\Models\User;
@@ -35,6 +33,14 @@ class PostsController extends Controller
      */
     public function store(Request $request)
     {
+        // 🔐 Cek apakah user punya permission 'create-post'
+        $user = auth()->user();
+        if (! $user->can('create-post')) {
+            return response()->json([
+                'message' => 'You do not have permission.',
+            ], 422);
+        }
+
         $request->validate([
             'title'     => 'required|min:4|string',
             'content'   => 'required|min:4',
@@ -62,18 +68,11 @@ class PostsController extends Controller
         $post->author()->associate(auth()->user());
         $post->save();
 
-        if ($request->hasFile('featured_image')) {
+        if ($request->hasFile('featured_image') && $request->file('featured_image')->isValid()) {
 
-            //delete old image
-            if ($post->featured_image) {
-                Storage::disk('public')->delete($post->featured_image);
-            }
-
-            $file = $request->file('featured_image');
-            $path = $file->store('posts/' . date('Y/m'), 'public');
-            $post->update([
-                'featured_image' => $path
-            ]);
+            // Tambahkan media baru ke koleksi 'featured'
+            $post->addMedia($request->file('featured_image'))
+                ->toMediaCollection('featured_image');
         }
 
         return response()->json($post);
@@ -97,14 +96,23 @@ class PostsController extends Controller
      */
     public function update(Request $request, string $id)
     {
+        $user = auth()->user();
+
+        // 🔐 Cek apakah user punya permission 'edit-post'
+        if (! $user->can('edit-post')) {
+            return response()->json([
+                'message' => 'You do not have permission.',
+            ], 422);
+        }
+
         $request->validate([
             'title'     => 'required|min:4|string',
             'content'   => 'required|min:4',
             'date'      => 'nullable|date',
-            'featured_image'    => 'nullable|image|mimes:jpeg,png,jpg,webp,gif,svg|max:2048',
             'status'    => 'required|string',
             'category'  => 'nullable|string',
             'tags'      => 'nullable|string',
+            'featured_image'    => 'nullable|image|mimes:jpeg,png,jpg,webp,gif,svg|max:2048',
         ]);
 
         //if date is null, set date to now
@@ -123,18 +131,14 @@ class PostsController extends Controller
             'status'    => $request->status,
         ]);
 
-        if ($request->hasFile('featured_image')) {
+        if ($request->hasFile('featured_image') && $request->file('featured_image')->isValid()) {
 
-            //delete old image
-            if ($post->featured_image) {
-                Storage::disk('public')->delete($post->featured_image);
-            }
+            // Hapus media lama (jika hanya ingin 1 gambar per post)
+            $post->clearMediaCollection('featured_image');
 
-            $file = $request->file('featured_image');
-            $path = $file->store('posts/' . date('Y/m'), 'public');
-            $post->update([
-                'featured_image' => $path
-            ]);
+            // Tambahkan media baru ke koleksi 'featured'
+            $post->addMedia($request->file('featured_image'))
+                ->toMediaCollection('featured_image');
         }
 
         //category
@@ -180,13 +184,17 @@ class PostsController extends Controller
      */
     public function destroy(string $id)
     {
+
+        // 🔐 Cek apakah user punya permission 'edit-post'
+        $user = auth()->user();
+        if (! $user->can('delete-post')) {
+            return response()->json([
+                'message' => 'You do not have permission.',
+            ], 422);
+        }
+
         //get post
         $post = Post::find($id);
-
-        //delete featured image
-        if ($post->featured_image) {
-            Storage::disk('public')->delete($post->featured_image);
-        }
 
         //delete post
         $post->delete();

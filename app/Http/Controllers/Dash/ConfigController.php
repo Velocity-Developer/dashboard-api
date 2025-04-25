@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Dash;
 
+use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use App\Models\Setting;
@@ -12,12 +13,13 @@ class ConfigController extends Controller
     {
 
         $results = [
-            'year' => date('Y'),
-            'app_name' => Setting::get('app_name'),
-            'app_description' => Setting::get('app_description'),
-            'app_logo' => '',
-            'app_logo_small' => '',
-            'app_favicon' => '',
+            'year'              => date('Y'),
+            'app_name'          => Setting::get('app_name'),
+            'app_description'   => Setting::get('app_description'),
+            'app_logo'          => '',
+            'app_logo_small'    => '',
+            'app_favicon'       => '',
+            'app_menus'         => ''
         ];
 
         $app_logo = Setting::get('app_logo');
@@ -44,6 +46,29 @@ class ConfigController extends Controller
         //data user login
         $results['user'] = $request->user();
 
+        //jika user login
+        if ($request->user()) {
+            // Dapatkan semua permissions
+            $permissons = $request->user()->getPermissionsViaRoles();
+
+            //collection permissions
+            $results['permissions'] = collect($permissons)->pluck('name');
+
+            //get user role
+            $role = $request->user()->roles()->first();
+            $role = $role ? $role->name : null;
+            $results['role'] = $role;
+
+            //get menus by role
+            $path = resource_path("menus/{$role}.json");
+            if (file_exists($path)) {
+                $results['app_menus'] = json_decode(file_get_contents($path));
+            } else {
+                $path = resource_path("menus/user.json");
+                $results['app_menus'] = json_decode(file_get_contents($path));
+            }
+        }
+
         return $results;
     }
 
@@ -55,6 +80,15 @@ class ConfigController extends Controller
 
     public function setconfig(Request $request)
     {
+
+        // 🔐 Cek apakah user punya permission 'edit-settings'
+        $user = auth()->user();
+        if (! $user->can('edit-settings')) {
+            return response()->json([
+                'message' => 'You do not have permission.',
+            ], 422);
+        }
+
         $request->validate([
             'app_name'          => 'required',
             'app_description'   => 'required',
